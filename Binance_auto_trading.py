@@ -14,12 +14,23 @@ from pytz import timezone
 import websocket
 import telegram
 
-chat_token = 
-chat_id = -477486112
+
+
+## -----------------------------------------------------------
+## 텔레그램 설정 
+## -----------------------------------------------------------
+
+chat_token = ""
+chat_id = ""
 bot = telegram.Bot(token = chat_token)
 
-api_key = 
-secret  = 
+
+## -----------------------------------------------------------
+## 바이낸스 API 섧정
+## -----------------------------------------------------------
+
+api_key = ""
+secret  = ""
 
 binance = ccxt.binance(config={
     'apiKey': api_key, 
@@ -33,31 +44,33 @@ binance = ccxt.binance(config={
 
 #%%
 ## -----------------------------------------------------------
-## 주요변수 지정
+## 주요변수 지정 - 콘솔에서 입력한 파라미터 저장
 ## -----------------------------------------------------------
-FLAG_BAT_CNT = 0
+
+FLAG_BAT_CNT = 0 #물타기 플래그
 
 TRADE_SYMBOL = sys.argv[1]
 TRADE_SYMBOL_SIMPLE = TRADE_SYMBOL.replace("/", "")
 TRADE_AMOUNT = sys.argv[2]
-TRADE_SIDE = "LONG"
+TRADE_SIDE = sys.argv[3]
 
-FLAG_BAT_CNT= int(sys.argv[3])
+FLAG_BAT_CNT= int(sys.argv[4])
 
-FLAG_BAT_CNT= int(sys.argv[3])
+ROE_RANGE_1 = int(sys.argv[5])
+ROE_RANGE_2 = int(sys.argv[6])
+ROE_RANGE_3 = int(sys.argv[7])
 
-ROE_RANGE_1 = int(sys.argv[4])
-ROE_RANGE_2 = int(sys.argv[5])
-ROE_RANGE_3 = int(sys.argv[6])
+GET_PORFIT = float(sys.argv[8])
 
-GET_PORFIT = float(sys.argv[7])
-
-LOSS_CUT = 0.05
+LOSS_CUT = 0.05 #로스컷 비율
 
 SOCKET = f"wss://stream.binance.com:9443/ws/{TRADE_SYMBOL_SIMPLE.lower()}@kline_1m"
 
-#%%
 
+#%%
+## -----------------------------------------------------------
+## 열려있는 주문을 테이블로 그리기
+## -----------------------------------------------------------
 def make_table(pos_lev, pos_side, pos_entry, pos_amt, pos_pnl, pos_roe):
     positonTable = Table(
         show_header=True, 
@@ -140,7 +153,7 @@ def make_orders(pos_amt):
         make_order = binance.create_order(
             symbol = TRADE_SYMBOL,
             type = "MARKET",
-            side = "BUY", # LONG POSTION
+            side = "BUY" if TRADE_SIDE == "LONG" else "SELL", #포지션에 따른 주문 설정
             amount = make_amt,
             params = params
         )
@@ -182,8 +195,8 @@ def take_profit_order(pos_entry, bat_cnt, pos_amt):
     print(f"MAKE Take Profit Position : {TRADE_SIDE}")
     print("---------------------------------------------------------------------------")
 
-    st_price = pos_entry * (1 + GET_PORFIT) #롱포지션이기 때문에 상향된 값으로
-    set_side = "SELL" #롱포지션이므로 팔기로 정의
+    st_price = pos_entry * (1 + GET_PORFIT) if TRADE_SIDE == "LONG" else pos_entry * (1 - GET_PORFIT) #롱포지션이면 진입가보가 높게 / 숏포지션이면 진입가보다 낮게 / 정해진 익절 비율에 따라
+    set_side = "SELL"  if TRADE_SIDE == "LONG" else "BUY" #롱포지션은 팔기로 익절 / 숏포지션이라면 사기로 익절
 
     print(f"ENTRY PRICE : {pos_entry} | StopPrice : {st_price} | SetSide : {set_side}")
     print("---------------------------------------------------------------------------")
@@ -208,12 +221,12 @@ def take_profit_order(pos_entry, bat_cnt, pos_amt):
         print(e)
 
     # 마지막 배팅인 경우에 손절가도 같이 지정
-    if FLAG_BAT_CNT == 3:
+    if FLAG_BAT_CNT == 4:
         print(f"LAST BAT : {FLAG_BAT_CNT} | MAKE LOSS CUT")
         print("---------------------------------------------------------------------------")
         
-        st_price = pos_entry * (1 - LOSS_CUT) #손절가격 이므로 하향된 값으로
-        set_side = "SELL" #롱포지션이므로 팔기로 정의
+        st_price = pos_entry * (1 - LOSS_CUT)  if TRADE_SIDE == "LONG" else pos_entry * (1 + LOSS_CUT) #손절가격 설정
+        set_side = "SELL" if TRADE_SIDE == "LONG" else "BUY" 
 
         print(f"ENTRY PRICE : {pos_entry} | StopPrice : {st_price} | SetSide : {set_side}")
         print("---------------------------------------------------------------------------")
@@ -255,7 +268,7 @@ def get_opened_postion():
                 pos_amt = abs(float(position["positionAmt"]))
                 pos_entry = round(float(position["entryPrice"]),5)
                 pos_pnl = round(float(position["unrealizedProfit"]),2)
-                pos_roe = (mk_price/pos_entry-1)*pos_lev*100 if pos_entry > 0 else 0
+                pos_roe = ((mk_price/pos_entry-1)*pos_lev*100 if pos_entry > 0 else 0) if TRADE_SIDE == "LONG" else ((1-mk_price/pos_entry)*pos_lev*100 if pos_entry > 0 else 0)
                 pos_roe = round(float(pos_roe),2)
 
     return pos_lev, pos_side, pos_amt, pos_entry, pos_pnl, pos_roe
